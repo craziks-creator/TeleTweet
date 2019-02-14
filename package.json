@@ -1,0 +1,33 @@
+{
+	"name": "TeleTweet",
+	"version": "1.0.0",
+	"description": "Node.js based Telegram-Twitter bridge",
+	"main": "teletweet",
+	"dependencies": {
+		"js-yaml": "^3.12.1",
+		"node-telegram-bot-api": "^0.30.0",
+		"twit": "^2.2.11",
+		"winston": "^3.2.1"
+	},
+	"devDependencies": {},
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"start": "node teletweet.js"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git://github.com/rraallvv/TeleTweet.git"
+	},
+	"author": "rraallvv",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/rraallvv/TeleTweet/issues"
+	},
+	"homepage": "https://github.com/rraallvv/TeleTweet",
+	"keywords": [
+		"twitter",
+		"telegram",
+		"bridge",
+		"bot"
+	]
+}

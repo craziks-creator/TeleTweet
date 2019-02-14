@@ -1,0 +1,12 @@
+log:
+  file: teletweet.log
+  level: "info"
+twitter:
+  consumerKey:
+  consumerSecret:
+  accessToken:
+  accessTokenSecret:
+  username:
+telegram:
+  chatId:
+  token:
