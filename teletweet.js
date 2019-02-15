@@ -5,6 +5,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const yaml = require("js-yaml");
 const winston = require("winston");
 const fs = require("fs");
+const request = require("request");
 
 // setup logger
 const logger = winston.createLogger();
@@ -46,28 +47,74 @@ const twitterStream = twitterBot.stream("statuses/filter", {
 });
 
 // telegram bot
-telegramBot.onText(/\/tweet (.+)/, (msg, match) => {
-	var resp = match[1];
+const activeChats = {};
 
-	twitterBot.post(
-		"statuses/update",
-		{
-			status: resp
-		},
-		function(error, tweet, response) {
-			if (error) {
-				logger.error(error);
-			}
+telegramBot.on('message', msg => {
+	if (msg.chat.type != "private") {
+		return;
+	}
+	const re = /(\/(start|tweet|help) ?|(.+))/;
+	if (msg.text) {
+		const match = msg.text.match(re);
+		const command = match[2];
+		const message = match[3];
+		switch(command) {
+			case "start":
+				telegramBot.sendMessage(msg.chat.id, "Type the message you want to tweet");
+				activeChats[msg.chat.id] = {};
+				activeChats[msg.chat.id].message = "";
+				activeChats[msg.chat.id].media_ids = [];
+				break;
+			case "tweet":
+				if (!activeChats[msg.chat.id] || !activeChats[msg.chat.id].message) {
+					telegramBot.sendMessage(msg.chat.id, "Type /help to see how to use this bot.");
+				} else {
+					const params = { status: activeChats[msg.chat.id].message, media_ids: activeChats[msg.chat.id].media_ids };
+					twitterBot.post('statuses/update', params, (error, data, response) => {
+						if (!error) {
+							const statusUrl = `https://twitter.com/${data.screen_name}/status/${data.id_str}`;
+							telegramBot.sendMessage(msg.chat.id, `Your message was posted to your Twitter stream.\nVisit this link to check it out:\n${statusUrl}`);
+							delete activeChats[msg.chat.id];
+						} else {
+							console.log(error);
+							telegramBot.sendMessage(msg.chat.id, "Something went wrong when trying to post your message to your Twitter stream");
+						}
+					});	
+				}
+				break;
+			case "help":
+				telegramBot.sendMessage(msg.chat.id, "1) Type the command /start\n2) Type message you want to tweet.\n3) Upload the media files you want to post with your tweet.\n4) Type the command /tweet to post your message to your Twitter stream.");
+				break;
+			default:
+				if (command) {
+					telegramBot.sendMessage(msg.chat.id, "The list of supported commands is /start, /tweet and /help");
+				} else if(message) {
+					if (message.length > 280) {
+						telegramBot.sendMessage(msg.chat.id, `The message surpases 280 characters by ${message.length - 280}, please type a shortened message`);
+					} else {
+						telegramBot.sendMessage(msg.chat.id, `Upload a media file to attach to your tweet, or type /tweet to post your message to your stream`);
+						activeChats[msg.chat.id].message = message;
+					}
+				}
+				break;
 		}
-	);
-});
 
-/*
-telegramBot.on('message', (msg) => {
-	var chatId = msg.chat.id;
-	telegramBot.sendMessage(chatId, 'Received your message');
+	} else if (msg.photo || msg.animation) {
+		const altText = msg.caption;
+		let fileId;
+		if (msg.photo) {
+			fileId = msg.photo[msg.photo.length - 1].file_id;
+		} else {
+			fileId = msg.animation.file_id;
+		}
+		telegramBot.sendMessage(msg.chat.id, "Please wait a few seconds while the file is being uploaded to Twitter...");
+		uploadMedia(altText, fileId, mediaId => {
+			activeChats[msg.chat.id].media_ids.push(mediaId);
+			telegramBot.sendMessage(msg.chat.id, "Your media file was uploaded, type /tweet to post your message to your Tweeter stream.");
+		});
+	}
+	console.log(activeChats[msg.chat.id]);
 });
-*/
 
 telegramBot.on("error", error => {
 	logger.error(error);
@@ -107,3 +154,24 @@ twitterStream.on("disconnect", disconnectMessage => {
 	logger.error("Disconnected TipBot from Twitter.\n" + disconnectMessage);
 	logger.info("Trying to reconnect.....");
 });
+
+function uploadMedia(altText, fileId, callback) {
+	request(`https://api.telegram.org/bot${settings.telegram.token}/getFile?file_id=${fileId}`, (error, response, body) => {
+		const filePath = JSON.parse(body).result.file_path;
+		request({
+			url: `https://api.telegram.org/file/bot${settings.telegram.token}/${filePath}`,
+			encoding: 'binary',
+			headers: {
+				"Connection": "keep-alive"
+			}
+		}, (error, response, body) => {
+			const base64 = Buffer.from(body, 'binary').toString('base64');
+			twitterBot.post('media/upload', { media: base64 }, (error, data, response) => {
+				const mediaId = data.media_id_string;
+				twitterBot.post('media/metadata/create', { media_id: mediaId, alt_text: altText }, (error, data, response) => {
+					callback(mediaId);
+				});
+			});	
+		});
+	});
+}
