@@ -6,6 +6,7 @@
 	"dependencies": {
 		"js-yaml": "^3.12.1",
 		"node-telegram-bot-api": "^0.30.0",
+		"oauth": "^0.9.15",
 		"twit": "^2.2.11",
 		"winston": "^3.2.1"
 	},

@@ -108,7 +108,7 @@ telegramBot.on('message', msg => {
 			fileId = msg.animation.file_id;
 		}
 		telegramBot.sendMessage(msg.chat.id, "Please wait a few seconds while the file is being uploaded to Twitter...");
-		uploadMedia(altText, fileId, mediaId => {
+		uploadMedia(twitterBot, altText, fileId, mediaId => {
 			activeChats[msg.chat.id].media_ids.push(mediaId);
 			telegramBot.sendMessage(msg.chat.id, "Your media file was uploaded, type /tweet to post your message to your Tweeter stream.");
 		});
@@ -155,7 +155,7 @@ twitterStream.on("disconnect", disconnectMessage => {
 	logger.info("Trying to reconnect.....");
 });
 
-function uploadMedia(altText, fileId, callback) {
+function uploadMedia(twitterBot, altText, fileId, callback) {
 	request(`https://api.telegram.org/bot${settings.telegram.token}/getFile?file_id=${fileId}`, (error, response, body) => {
 		const filePath = JSON.parse(body).result.file_path;
 		request({
