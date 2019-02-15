@@ -6,6 +6,12 @@ const yaml = require("js-yaml");
 const winston = require("winston");
 const fs = require("fs");
 const request = require("request");
+const querystring = require('querystring');
+const oauth = require('oauth');
+
+const REQUEST_TOKEN_URL = 'https://api.twitter.com/oauth/request_token';
+const ACCESS_TOKEN_URL = 'https://api.twitter.com/oauth/access_token';
+const AUTHORIZE_URL = 'https://api.twitter.com/oauth/authorize';
 
 // setup logger
 const logger = winston.createLogger();
@@ -37,8 +43,49 @@ const telegramBot = new TelegramBot(settings.telegram.token, { polling: true });
 // telegram bot
 const activeChats = {};
 
+console.log("Running...");
+
 telegramBot.on('message', msg => {
 	if (msg.chat.type != "private") {
+		return;
+	}
+	if (!activeChats[msg.chat.id]) {
+		activeChats[msg.chat.id] = {};
+	}
+	if (!activeChats[msg.chat.id].credentials) {
+		if (!activeChats[msg.chat.id].verifier) {
+			telegramBot.sendMessage(msg.chat.id, "Please first authorize the app in order to be able to tweet to your Twitter stream from this chat.");
+
+			const oa = new oauth.OAuth(REQUEST_TOKEN_URL, ACCESS_TOKEN_URL, settings.twitter.consumerKey, settings.twitter.consumerSecret, '1.0', null, 'HMAC-SHA1', null);
+			oa.getOAuthRequestToken(function(error, oauth_token, oauth_token_secret, oauth_authorize_url, params) {
+				if (error) {
+					console.log(error);
+					telegramBot.sendMessage(msg.chat.id, "Couldn't authenticate using your app credentials...");
+	
+				} else {
+					var url = AUTHORIZE_URL + '?' + querystring.stringify({
+						oauth_token: oauth_token
+					});
+					telegramBot.sendMessage(msg.chat.id, `Your authorization url is\n${url}\nPlease authorize the app on the link above and paste the PIN number in the chat, then hit Enter.`);
+					activeChats[msg.chat.id].verifier = (oauth_verifier, callback) => {
+						oa.getOAuthAccessToken(oauth_token, oauth_token_secret, oauth_verifier, function(error, oauth_access_token, oauth_access_token_secret) {
+							if (error) {
+								callback(error);	
+							} else {
+								callback(null, { accessToken: oauth_access_token, accessTokenSecret: oauth_access_token_secret });
+							}
+						});	
+					}
+				}
+			});
+		} else {
+			activeChats[msg.chat.id].verifier(msg.text, (error, credentials) => {
+				if (!error) {
+					telegramBot.sendMessage(msg.chat.id, "The app has been authorized successfully, /start tweeting or type /help to see how it's used.");
+					activeChats[msg.chat.id].credentials = credentials;
+				}
+			});
+		}
 		return;
 	}
 	const re = /(\/(start|tweet|help) ?|(.+))/;
@@ -48,7 +95,6 @@ telegramBot.on('message', msg => {
 		const message = match[3];
 		switch(command) {
 			case "start":
-				activeChats[msg.chat.id] = {};
 				activeChats[msg.chat.id].message = "";
 				activeChats[msg.chat.id].media_ids = [];
 				if (!activeChats[msg.chat.id].twitter_client) {
@@ -56,8 +102,8 @@ telegramBot.on('message', msg => {
 					const twitterBot = new Twitter({
 						consumer_key: settings.twitter.consumerKey,
 						consumer_secret: settings.twitter.consumerSecret,
-						access_token: settings.twitter.accessToken,
-						access_token_secret: settings.twitter.accessTokenSecret
+						access_token: activeChats[msg.chat.id].credentials.accessToken,
+						access_token_secret: activeChats[msg.chat.id].credentials.accessTokenSecret
 					});
 
 					telegramBot.sendMessage(msg.chat.id, "Verifying your Twitter credentials...");
@@ -101,7 +147,7 @@ telegramBot.on('message', msg => {
 					telegramBot.sendMessage(msg.chat.id, "Not connected to Twitter try /start to connect.");
 					break;
 				}
-				if (!activeChats[msg.chat.id] || !activeChats[msg.chat.id].message) {
+				if (!activeChats[msg.chat.id].message) {
 					telegramBot.sendMessage(msg.chat.id, "Type /help to see how to use this bot.");
 				} else {
 					const params = { status: activeChats[msg.chat.id].message, media_ids: activeChats[msg.chat.id].media_ids };
@@ -109,7 +155,8 @@ telegramBot.on('message', msg => {
 						if (!error) {
 							const statusUrl = `https://twitter.com/${data.screen_name}/status/${data.id_str}`;
 							telegramBot.sendMessage(msg.chat.id, `Your message was posted to your Twitter stream.\nVisit this link to check it out:\n${statusUrl}`);
-							delete activeChats[msg.chat.id];
+							activeChats[msg.chat.id].message = "";
+							activeChats[msg.chat.id].media_ids = [];
 						} else {
 							console.log(error);
 							telegramBot.sendMessage(msg.chat.id, "Something went wrong when trying to post your message to your Twitter stream");
