@@ -34,18 +34,6 @@ if (settings.log.level) {
 // connect to telegram
 const telegramBot = new TelegramBot(settings.telegram.token, { polling: true });
 
-// connect to twitter
-const twitterBot = new Twitter({
-	consumer_key: settings.twitter.consumerKey,
-	consumer_secret: settings.twitter.consumerSecret,
-	access_token: settings.twitter.accessToken,
-	access_token_secret: settings.twitter.accessTokenSecret
-});
-
-const twitterStream = twitterBot.stream("statuses/filter", {
-	track: ["@" + settings.twitter.username]
-});
-
 // telegram bot
 const activeChats = {};
 
@@ -60,17 +48,64 @@ telegramBot.on('message', msg => {
 		const message = match[3];
 		switch(command) {
 			case "start":
-				telegramBot.sendMessage(msg.chat.id, "Type the message you want to tweet");
 				activeChats[msg.chat.id] = {};
 				activeChats[msg.chat.id].message = "";
 				activeChats[msg.chat.id].media_ids = [];
+				if (!activeChats[msg.chat.id].twitter_client) {
+
+					const twitterBot = new Twitter({
+						consumer_key: settings.twitter.consumerKey,
+						consumer_secret: settings.twitter.consumerSecret,
+						access_token: settings.twitter.accessToken,
+						access_token_secret: settings.twitter.accessTokenSecret
+					});
+
+					telegramBot.sendMessage(msg.chat.id, "Verifying your Twitter credentials...");
+
+					twitterBot.get('account/verify_credentials', { include_entities: false, skip_status: true, include_email: false }, (error, user) => {
+						if (!error) {
+							const twitterStream = twitterBot.stream("statuses/filter", {
+								track: ["@" + user.screen_name]
+							});							
+					
+							twitterStream.on("error", error => {
+								telegramBot.sendMessage(msg.chat.id, "Something went worng when trying to connect with Twitter");
+								logger.error(error);
+							});
+							
+							twitterStream.on("connect", request => {
+								telegramBot.sendMessage(msg.chat.id, "Connecting to Twitter...");
+								logger.info("Connecting to Twitter...");
+							});
+							
+							twitterStream.on("connected", response => {
+								telegramBot.sendMessage(msg.chat.id, "Connected to Twitter ✔️");
+								logger.info("Connected to Twitter.");
+							});
+							
+							twitterStream.on("disconnect", disconnectMessage => {
+								logger.error("Disconnected from Twitter.\n" + disconnectMessage);
+								telegramBot.sendMessage(msg.chat.id, "Disconnected from Twitter");
+							});
+							
+							activeChats[msg.chat.id].twitter_client = twitterBot;
+						} else {
+							console.error(error);
+							telegramBot.sendMessage(msg.chat.id, "Couldn't verify your Twitter credentials...");
+						}
+					});
+				}
 				break;
 			case "tweet":
+				if (!activeChats[msg.chat.id].twitter_client) {
+					telegramBot.sendMessage(msg.chat.id, "Not connected to Twitter try /start to connect.");
+					break;
+				}
 				if (!activeChats[msg.chat.id] || !activeChats[msg.chat.id].message) {
 					telegramBot.sendMessage(msg.chat.id, "Type /help to see how to use this bot.");
 				} else {
 					const params = { status: activeChats[msg.chat.id].message, media_ids: activeChats[msg.chat.id].media_ids };
-					twitterBot.post('statuses/update', params, (error, data, response) => {
+					activeChats[msg.chat.id].twitter_client.post('statuses/update', params, (error, data, response) => {
 						if (!error) {
 							const statusUrl = `https://twitter.com/${data.screen_name}/status/${data.id_str}`;
 							telegramBot.sendMessage(msg.chat.id, `Your message was posted to your Twitter stream.\nVisit this link to check it out:\n${statusUrl}`);
@@ -100,59 +135,28 @@ telegramBot.on('message', msg => {
 		}
 
 	} else if (msg.photo || msg.animation) {
-		const altText = msg.caption;
-		let fileId;
-		if (msg.photo) {
-			fileId = msg.photo[msg.photo.length - 1].file_id;
+		if (!activeChats[msg.chat.id].twitter_client) {
+			telegramBot.sendMessage(msg.chat.id, "Not connected to Twitter try /start to connect.");
 		} else {
-			fileId = msg.animation.file_id;
+			const altText = msg.caption;
+			let fileId;
+			if (msg.photo) {
+				fileId = msg.photo[msg.photo.length - 1].file_id;
+			} else {
+				fileId = msg.animation.file_id;
+			}
+			telegramBot.sendMessage(msg.chat.id, "Please wait a few seconds while the file is being uploaded to Twitter...");
+			uploadMedia(activeChats[msg.chat.id].twitter_client, altText, fileId, mediaId => {
+				activeChats[msg.chat.id].media_ids.push(mediaId);
+				telegramBot.sendMessage(msg.chat.id, "Your media file was uploaded, type /tweet to post your message to your Tweeter stream.");
+			});	
 		}
-		telegramBot.sendMessage(msg.chat.id, "Please wait a few seconds while the file is being uploaded to Twitter...");
-		uploadMedia(twitterBot, altText, fileId, mediaId => {
-			activeChats[msg.chat.id].media_ids.push(mediaId);
-			telegramBot.sendMessage(msg.chat.id, "Your media file was uploaded, type /tweet to post your message to your Tweeter stream.");
-		});
 	}
 	console.log(activeChats[msg.chat.id]);
 });
 
 telegramBot.on("error", error => {
 	logger.error(error);
-});
-
-// twitter bot
-twitterStream.on("tweet", tweet => {
-	fromId = tweet.user.id_str;
-	from = tweet.user.screen_name;
-	from = from.toLowerCase();
-	if (from == settings.twitter.username.toLowerCase()) {
-		return;
-	}
-	let fullTweet;
-	if (tweet.extended_tweet && tweet.extended_tweet.full_text) {
-		fullTweet = tweet.extended_tweet.full_text;
-	} else {
-		fullTweet = tweet.text;
-	}
-	telegramBot.sendMessage(settings.telegram.chatId, `@${from} tweeted: ${fullTweet}`);
-});
-
-twitterStream.on("error", error => {
-	console.log(error);
-	logger.error(error);
-});
-
-twitterStream.on("connect", request => {
-	logger.info("Connecting TipBot to Twitter.....");
-});
-
-twitterStream.on("connected", response => {
-	logger.info("Connected TipBot to Twitter.");
-});
-
-twitterStream.on("disconnect", disconnectMessage => {
-	logger.error("Disconnected TipBot from Twitter.\n" + disconnectMessage);
-	logger.info("Trying to reconnect.....");
 });
 
 function uploadMedia(twitterBot, altText, fileId, callback) {
