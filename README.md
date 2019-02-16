@@ -31,7 +31,8 @@ Once the Twitter app has been authorized anyone can start a private chat with th
 
 If you are an admin, you'll see a post from the bot on the group that look like this:
 
---
+---
+
 **Bot**
 
 ![](test.png)
@@ -40,13 +41,13 @@ Some message that was added by the user asking to post this tweet with the attac
 
 @SomeUser wants to tweet the message above, if you are an admin you can approve it by replying to this message with 👍
 
---
+---
 
-Admins can approve this tweet just by replying with 👍, and the bot will take care of send ing it to the Twitter account.
+Admins can approve this tweet just by replying with 👍, and the bot will take care of sending it to the Twitter account.
 
 Once the tweet has been sent a message will be posted to the group that looks like this:
 
---
+---
 
 **Bot**
 
@@ -58,6 +59,6 @@ https://twitter.com/TheTwitterAccount/status/1234567890-etc
 
 ![](test.png)
 
---
+---
 
 
