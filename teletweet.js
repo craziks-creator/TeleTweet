@@ -17,7 +17,7 @@ const WAITING_FOR_APPROVAL =
 const BEING_TWEETED =
 	"<%MESSAGE%>\n\n<%USER%> wanted to tweet the message above and it's been approved by <%ADMIN%>";
 const TWEETED =
-	"This tweet was requested by <%USER%> and twetted by <%ADMIN%>.\nVisit this link below to check it out:\n<%LINK%>";
+	"This tweet was requested by <%USER%> and twetted by <%ADMIN%>.\nVisit the link below to check it out:\n<%LINK%>";
 
 // check if the settings file exists
 if (!fs.existsSync(SETTINGS_FILE)) {

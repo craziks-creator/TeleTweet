@@ -1,12 +1,9 @@
-log:
-  file: teletweet.log
-  level: "info"
 twitter:
-  consumerKey:
-  consumerSecret:
-  accessToken:
-  accessTokenSecret:
-  username:
+  consumerKey: <Twitter app consumer key>
+  consumerSecret: <Twitter app consumer secret>
+  accessToken: <Twitter account access token>
+  accessTokenSecret: <Twitter account access token secret>
+  user: <Twitter handle>
 telegram:
-  chatId:
-  token:
+  chatId: <Telegram cha id>
+  token: <Telegram bot token>
