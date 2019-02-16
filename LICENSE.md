@@ -1,4 +1,4 @@
-Copyright (c) 2019 Rhody Lugo
+Copyright (c) 2019 Rhody Lugo  
 Copyright (c) 2019 The Nimiq Foundation
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
