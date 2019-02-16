@@ -1,8 +1,8 @@
 const querystring = require('querystring');
 const oauth = require('oauth');
 
-const CONSUMER_KEY = 'IT6u2KEtKZIgUFo6BAfh1mx3I';
-const CONSUMER_SECRET = 'M3VUePMnXefdeHtzY9dIeyXj6zCdk5h4b03lcmokxOGPjfRIuY';
+const CONSUMER_KEY = '<Twitter app consumer key>';
+const CONSUMER_SECRET = '<Twitter app consumer secret>';
 const REQUEST_TOKEN_URL = 'https://api.twitter.com/oauth/request_token';
 const ACCESS_TOKEN_URL = 'https://api.twitter.com/oauth/access_token';
 const AUTHORIZE_URL = 'https://api.twitter.com/oauth/authorize';
