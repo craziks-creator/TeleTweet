@@ -6,7 +6,7 @@
 
 Copy the contents of the file `example.settings.yml` to a new file `settings.yml`
 
-Put the correct information in `settings.yml`. The fields `accessToken`, `accessTokenSecret`, and `user` under the `twitter` settings are optional.
+Put the correct information in `settings.yml`. The fields `logFile`, `accessToken`, `accessTokenSecret`, and `user` are optional.
 
 You can get the values for `accessToken` and `accessTokenSecret` running the script `authorize.js` like in the command below, and visiting the link to grant access to the Twitter app, then entering the PIN number to get your `accessToken` and `accessTokenSecret`:
 

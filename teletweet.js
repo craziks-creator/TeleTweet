@@ -144,7 +144,7 @@ function checkPreparedTweet(msg) {
 				}
 				const newMessage = BEING_TWEETED.replace("<%MESSAGE%>", originalMessage)
 					.replace("<%USER%>", "@" + originalAuthor)
-					.replace("<%ADMIN%>", "@" + msg.from.username);
+					.replace("<%ADMIN%>", "@" + (msg.from.username || msg.from.first_name));
 				if (fileId) {
 					telegramBot.editMessageCaption(newMessage, {
 						chat_id: msg.chat.id,
@@ -156,7 +156,7 @@ function checkPreparedTweet(msg) {
 							originalMessage,
 							mediaId,
 							originalAuthor,
-							msg.from.username
+							(msg.from.username || msg.from.first_name)
 						);
 					});
 				} else {
@@ -164,7 +164,7 @@ function checkPreparedTweet(msg) {
 						chat_id: msg.chat.id,
 						message_id: msg.reply_to_message.message_id
 					});
-					tweet(msg, originalMessage, null, originalAuthor, msg.from.username);
+					tweet(msg, originalMessage, null, originalAuthor, (msg.from.username || msg.from.first_name));
 				}
 			}
 		} else {
@@ -332,7 +332,7 @@ function createTwitterBot(msg) {
 		access_token_secret: settings.twitter.accessTokenSecret
 	});
 
-	telegramBot.sendMessage(msg.chat.id, "Verifying your Twitter credentials...");
+	telegramBot.sendMessage(msg.chat.id, "Verifying Twitter app credentials...");
 
 	twitterBot.get(
 		"account/verify_credentials",
@@ -398,7 +398,7 @@ function prepareTweet(msg) {
 		const message = match[3];
 		switch (command) {
 			case "start":
-				usersChat[msg.from.id].message = "";
+				usersChat[msg.from.id] = null;
 				telegramBot.sendMessage(
 					msg.chat.id,
 					"Type any message that you want to be tweeted, the most recent message is the one used for the tweet."
@@ -414,7 +414,7 @@ function prepareTweet(msg) {
 				}
 				const waitingForApproval = WAITING_FOR_APPROVAL.replace(
 					"<%USER%>",
-					"@" + msg.from.username
+					"@" + (msg.from.username || msg.from.first_name)
 				).replace("<%MESSAGE%>", usersChat[msg.from.id].message);
 				if (!usersChat[msg.from.id].file_id) {
 					telegramBot.sendMessage(settings.telegram.chatId, waitingForApproval);
@@ -443,9 +443,7 @@ function prepareTweet(msg) {
 							break;
 					}
 				}
-				usersChat[msg.from.id].message = null;
-				usersChat[msg.from.id].file_type = null;
-				usersChat[msg.from.id].file_id = null;
+				usersChat[msg.from.id] = null;
 				break;
 			case "help":
 				telegramBot.sendMessage(
