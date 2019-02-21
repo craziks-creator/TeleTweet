@@ -1,3 +1,4 @@
+logFile: logger.log
 twitter:
   consumerKey: <Twitter app consumer key>
   consumerSecret: <Twitter app consumer secret>

@@ -7,6 +7,8 @@ const fs = require("fs");
 const request = require("request");
 const querystring = require("querystring");
 const oauth = require("oauth");
+const { createLogger, format, transports } = require("winston");
+const { combine, timestamp, label, printf } = format;
 const path = require("path");
 
 const REQUEST_TOKEN_URL = "https://api.twitter.com/oauth/request_token";
@@ -22,7 +24,7 @@ const TWEETED =
 
 // check if the settings file exists
 if (!fs.existsSync(SETTINGS_FILE)) {
-	console.error(
+	logger.error(
 		"Configuration file doesn't exist! Please read the README.md file first."
 	);
 	process.exit(1);
@@ -30,6 +32,36 @@ if (!fs.existsSync(SETTINGS_FILE)) {
 
 // load settings
 const settings = yaml.load(fs.readFileSync(SETTINGS_FILE, "utf-8"));
+
+// create logger
+const logger = createLogger({ level: "debug" });
+
+logger.add(
+	new transports.Console({
+		format: combine(
+			label({ label: "TeleTweet" }),
+			printf(info => `[${info.level}]: ${info.label} - ${info.message}`)
+		)
+	})
+);
+
+if (settings.logFile) {
+	logger.add(
+		new transports.File({
+			filename: settings.logFile,
+			format: combine(
+				label({ label: "TeleTweet" }),
+				timestamp(),
+				printf(
+					info =>
+						`[${info.timestamp}] [${info.level}]: ${info.label} - ${
+							info.message
+						}`
+				)
+			)
+		})
+	);
+}
 
 // connect to telegram
 let telegramBotId;
@@ -44,7 +76,7 @@ let oauthVerifier;
 // twitter bot
 let twitterBot;
 
-console.log("Running...");
+logger.debug("Running...");
 
 telegramBot.on("message", async msg => {
 	if (!settings.twitter.accessToken || !settings.twitter.accessTokenSecret) {
@@ -78,7 +110,7 @@ telegramBot.on("message", async msg => {
 });
 
 telegramBot.on("error", error => {
-	console.error(error);
+	logger.error(error);
 	process.exit(1);
 });
 
@@ -147,7 +179,7 @@ function uploadMedia(fileId, callback) {
 		}/getFile?file_id=${fileId}`,
 		(error, response, body) => {
 			if (error || response.statusCode != 200) {
-				return console.error(
+				return logger.error(
 					"Couldn't retrieve the telegram media file_id",
 					error || response.statusMessage
 				);
@@ -165,7 +197,7 @@ function uploadMedia(fileId, callback) {
 				},
 				(error, response, body) => {
 					if (error || response.statusCode != 200) {
-						return console.error(
+						return logger.error(
 							"Couldn't download the telegram media file",
 							error || response.statusMessage
 						);
@@ -173,7 +205,7 @@ function uploadMedia(fileId, callback) {
 					const filename = path.basename(filePath);
 					fs.writeFile(filename, body, "binary", error => {
 						if (error) {
-							return console.error(error);
+							return logger.error(error);
 						}
 						twitterBot.postMediaChunked({ file_path: filename }, function(
 							error,
@@ -181,14 +213,14 @@ function uploadMedia(fileId, callback) {
 							response
 						) {
 							if (error || response.statusCode != 200) {
-								return console.error(
+								return logger.error(
 									"Couldn't upload the media file",
 									error || response.statusMessage
 								);
 							}
 							fs.unlink(filename, error => {
 								if (error) {
-									return console.error(error);
+									return logger.error(error);
 								}
 							});
 							const mediaId = data.media_id_string;
@@ -197,7 +229,7 @@ function uploadMedia(fileId, callback) {
 								{ media_id: mediaId },
 								(error, data, response) => {
 									if (error || response.statusCode != 200) {
-										return console.error(
+										return logger.error(
 											"Couldn't create metadata for tweet",
 											error || response.statusMessage
 										);
@@ -238,7 +270,7 @@ function authorizeTwitterApp(msg) {
 			params
 		) {
 			if (error) {
-				console.log(error);
+				logger.debug(error);
 				telegramBot.sendMessage(
 					msg.chat.id,
 					"Couldn't authenticate using your credentials."
@@ -276,7 +308,7 @@ function authorizeTwitterApp(msg) {
 	} else {
 		oauthVerifier(msg.text, (error, credentials) => {
 			if (error) {
-				return console.error("The verification step was not completed", error);
+				return logger.error("The verification step was not completed", error);
 			}
 			settings.twitter.accessToken = credentials.accessToken;
 			settings.twitter.accessTokenSecret = credentials.accessTokenSecret;
@@ -311,7 +343,7 @@ function createTwitterBot(msg) {
 		},
 		(error, user) => {
 			if (error) {
-				console.error(error);
+				logger.error(error);
 				telegramBot.sendMessage(
 					msg.chat.id,
 					"Couldn't verify your Twitter credentials..."
@@ -327,7 +359,7 @@ function createTwitterBot(msg) {
 			});
 
 			twitterStream.on("error", error => {
-				console.error(error);
+				logger.error(error);
 			});
 
 			twitterStream.on("connect", request => {
@@ -348,7 +380,7 @@ function createTwitterBot(msg) {
 			});
 
 			twitterStream.on("disconnect", disconnectMessage => {
-				console.error("Disconnected from Twitter.\n" + disconnectMessage);
+				logger.error("Disconnected from Twitter.\n" + disconnectMessage);
 				telegramBot.sendMessage(msg.chat.id, "Disconnected from Twitter");
 			});
 		}
@@ -494,7 +526,7 @@ function tweet(msg, status, mediaId, user, admin) {
 	const params = { status: status, media_ids: media_ids };
 	twitterBot.post("statuses/update", params, (error, data, response) => {
 		if (error || response.statusCode != 200) {
-			return console.error(
+			return logger.error(
 				"Couldn't post status to the Twitter stream",
 				error || response.statusMessage
 			);
