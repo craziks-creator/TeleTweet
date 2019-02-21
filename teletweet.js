@@ -7,6 +7,7 @@ const fs = require("fs");
 const request = require("request");
 const querystring = require("querystring");
 const oauth = require("oauth");
+const path = require("path");
 
 const REQUEST_TOKEN_URL = "https://api.twitter.com/oauth/request_token";
 const ACCESS_TOKEN_URL = "https://api.twitter.com/oauth/access_token";
@@ -51,12 +52,14 @@ telegramBot.on("message", async msg => {
 			authorizeTwitterApp(msg);
 		}
 	} else {
-		if (!twitterBot) {
-			createTwitterBot(msg);
-		} else {
-			if (msg.chat.type == "private") {
-				prepareTweet(msg);
+		if (msg.chat.type == "private") {
+			if (!twitterBot) {
+				createTwitterBot(msg);
 			} else {
+				prepareTweet(msg);
+			}
+		} else {
+			if (twitterBot) {
 				isAdmin(msg, result => {
 					if (result) {
 						if (!telegramBotId) {
@@ -101,6 +104,10 @@ function checkPreparedTweet(msg) {
 							.file_id;
 				} else if (msg.reply_to_message.animation) {
 					fileId = msg.reply_to_message.animation.file_id;
+				} else if (msg.reply_to_message.document) {
+					fileId = msg.reply_to_message.document.file_id;
+				} else if (msg.reply_to_message.video) {
+					fileId = msg.reply_to_message.video.file_id;
 				}
 				const newMessage = BEING_TWEETED.replace("<%MESSAGE%>", originalMessage)
 					.replace("<%USER%>", "@" + originalAuthor)
@@ -127,7 +134,7 @@ function checkPreparedTweet(msg) {
 					tweet(
 						msg,
 						originalMessage,
-						mediaId,
+						null,
 						originalAuthor,
 						msg.from.username
 					);
@@ -156,21 +163,23 @@ function uploadMedia(fileId, callback) {
 					}
 				},
 				(error, response, body) => {
-					const base64 = Buffer.from(body, "binary").toString("base64");
-					twitterBot.post(
-						"media/upload",
-						{ media: base64 },
-						(error, data, response) => {
-							const mediaId = data.media_id_string;
-							twitterBot.post(
-								"media/metadata/create",
-								{ media_id: mediaId },
-								(error, data, response) => {
-									callback(mediaId);
-								}
-							);
+					const filename = path.basename(filePath);
+					fs.writeFile(filename, body, 'binary', error => {
+						if (!error) {
+							twitterBot.postMediaChunked({ file_path: filename }, function (error, data, response) {
+								fs.unlink(filename, error => {
+								});
+								const mediaId = data.media_id_string;
+								twitterBot.post(
+									"media/metadata/create",
+									{ media_id: mediaId },
+									(error, data, response) => {
+										callback(mediaId);
+									}
+								);
+							});	
 						}
-					);
+					});
 				}
 			);
 		}
@@ -219,11 +228,11 @@ function authorizeTwitterApp(msg) {
 					`Your authorization url is\n${url}\nPlease authorize the app on the link above and paste the PIN number in the chat, then hit Enter.`
 				);
 				oauthVerifier = (pin, callback) => {
-					oa.getOAuthAccessToken(oauth_token, oauth_token_secret, pin, function(
+					oa.getOAuthAccessToken(oauth_token, oauth_token_secret, pin, (
 						error,
 						oauth_access_token,
 						oauth_access_token_secret
-					) {
+					) => {
 						if (error) {
 							callback(error);
 						} else {
@@ -346,7 +355,7 @@ function prepareTweet(msg) {
 					"@" + msg.from.username
 				).replace("<%MESSAGE%>", usersChat[msg.from.id].message);
 				if (!usersChat[msg.from.id].file_id) {
-					telegramBot.sendMessage(msg.chat.id, waitingForApproval);
+					telegramBot.sendMessage(settings.telegram.chatId, waitingForApproval);
 				} else {
 					switch (usersChat[msg.from.id].file_type) {
 						case "photo":
@@ -362,14 +371,24 @@ function prepareTweet(msg) {
 								usersChat[msg.from.id].file_id,
 								{ caption: waitingForApproval }
 							);
+							break;	
+						case "video":
+							telegramBot.sendVideo(
+								settings.telegram.chatId,
+								usersChat[msg.from.id].file_id,
+								{ caption: waitingForApproval }
+							);
 							break;
 					}
 				}
+				usersChat[msg.from.id].message = null;
+				usersChat[msg.from.id].file_type = null;
+				usersChat[msg.from.id].file_id = null;
 				break;
 			case "help":
 				telegramBot.sendMessage(
 					msg.chat.id,
-					"1) Type the message you want to tweet.\n2) Upload the media files you want to post with your tweet (optional).\n3) Type the command /tweet to post your message to the group so that an admin can authorize your tweet."
+					"1) Type the message you want to tweet.\n2) Upload the media file you want to post to your tweet (optional).\n3) Type the command /tweet to post your message to the group so that an admin can authorize your tweet."
 				);
 				break;
 			default:
@@ -395,13 +414,19 @@ function prepareTweet(msg) {
 				}
 				break;
 		}
-	} else if (msg.photo || msg.animation) {
+	} else if (msg.photo || msg.animation || msg.video || msg.document) {
 		usersChat[msg.from.id].file_id = null;
 		if (msg.photo) {
 			usersChat[msg.from.id].file_id = msg.photo[msg.photo.length - 1].file_id;
 			usersChat[msg.from.id].file_type = "photo";
 		} else if (msg.animation) {
 			usersChat[msg.from.id].file_id = msg.animation.file_id;
+			usersChat[msg.from.id].file_type = "document";
+		} else if (msg.video) {
+			usersChat[msg.from.id].file_id = msg.video.file_id;
+			usersChat[msg.from.id].file_type = "video";
+		} else if (msg.document) {
+			usersChat[msg.from.id].file_id = msg.document.file_id;
 			usersChat[msg.from.id].file_type = "document";
 		}
 		if (usersChat[msg.from.id].file_id) {
@@ -413,10 +438,15 @@ function prepareTweet(msg) {
 			} else {
 				telegramBot.sendMessage(
 					msg.chat.id,
-					"Your media file has been uploaded, now type the message you want to send with your tweet."
+					"Now type the message you want to send with your tweet."
 				);
 			}
 		}
+	} else {
+		telegramBot.sendMessage(
+			msg.chat.id,
+			"I'm sorry, this type of file is not supported."
+		);
 	}
 }
 
