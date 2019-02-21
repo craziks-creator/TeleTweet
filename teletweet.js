@@ -79,6 +79,7 @@ telegramBot.on("message", async msg => {
 
 telegramBot.on("error", error => {
 	console.error(error);
+	process.exit(1);
 });
 
 function checkPreparedTweet(msg) {
@@ -131,13 +132,7 @@ function checkPreparedTweet(msg) {
 						chat_id: msg.chat.id,
 						message_id: msg.reply_to_message.message_id
 					});
-					tweet(
-						msg,
-						originalMessage,
-						null,
-						originalAuthor,
-						msg.from.username
-					);
+					tweet(msg, originalMessage, null, originalAuthor, msg.from.username);
 				}
 			}
 		} else {
@@ -151,6 +146,12 @@ function uploadMedia(fileId, callback) {
 			settings.telegram.token
 		}/getFile?file_id=${fileId}`,
 		(error, response, body) => {
+			if (error || response.statusCode != 200) {
+				return console.error(
+					"Couldn't retrieve the telegram media file_id",
+					error || response.statusMessage
+				);
+			}
 			const filePath = JSON.parse(body).result.file_path;
 			request(
 				{
@@ -163,22 +164,48 @@ function uploadMedia(fileId, callback) {
 					}
 				},
 				(error, response, body) => {
+					if (error || response.statusCode != 200) {
+						return console.error(
+							"Couldn't download the telegram media file",
+							error || response.statusMessage
+						);
+					}
 					const filename = path.basename(filePath);
-					fs.writeFile(filename, body, 'binary', error => {
-						if (!error) {
-							twitterBot.postMediaChunked({ file_path: filename }, function (error, data, response) {
-								fs.unlink(filename, error => {
-								});
-								const mediaId = data.media_id_string;
-								twitterBot.post(
-									"media/metadata/create",
-									{ media_id: mediaId },
-									(error, data, response) => {
-										callback(mediaId);
-									}
-								);
-							});	
+					fs.writeFile(filename, body, "binary", error => {
+						if (error) {
+							return console.error(error);
 						}
+						twitterBot.postMediaChunked({ file_path: filename }, function(
+							error,
+							data,
+							response
+						) {
+							if (error || response.statusCode != 200) {
+								return console.error(
+									"Couldn't upload the media file",
+									error || response.statusMessage
+								);
+							}
+							fs.unlink(filename, error => {
+								if (error) {
+									return console.error(error);
+								}
+							});
+							const mediaId = data.media_id_string;
+							twitterBot.post(
+								"media/metadata/create",
+								{ media_id: mediaId },
+								(error, data, response) => {
+									if (error || response.statusCode != 200) {
+										return console.error(
+											"Couldn't create metadata for tweet",
+											error || response.statusMessage
+										);
+									}
+									callback(mediaId);
+								}
+							);
+						});
 					});
 				}
 			);
@@ -214,7 +241,7 @@ function authorizeTwitterApp(msg) {
 				console.log(error);
 				telegramBot.sendMessage(
 					msg.chat.id,
-					"Couldn't authenticate using the app credentials..."
+					"Couldn't authenticate using your credentials."
 				);
 			} else {
 				var url =
@@ -228,37 +255,39 @@ function authorizeTwitterApp(msg) {
 					`Your authorization url is\n${url}\nPlease authorize the app on the link above and paste the PIN number in the chat, then hit Enter.`
 				);
 				oauthVerifier = (pin, callback) => {
-					oa.getOAuthAccessToken(oauth_token, oauth_token_secret, pin, (
-						error,
-						oauth_access_token,
-						oauth_access_token_secret
-					) => {
-						if (error) {
-							callback(error);
-						} else {
-							callback(null, {
-								accessToken: oauth_access_token,
-								accessTokenSecret: oauth_access_token_secret
-							});
+					oa.getOAuthAccessToken(
+						oauth_token,
+						oauth_token_secret,
+						pin,
+						(error, oauth_access_token, oauth_access_token_secret) => {
+							if (error) {
+								callback(error);
+							} else {
+								callback(null, {
+									accessToken: oauth_access_token,
+									accessTokenSecret: oauth_access_token_secret
+								});
+							}
 						}
-					});
+					);
 				};
 			}
 		});
 	} else {
 		oauthVerifier(msg.text, (error, credentials) => {
-			if (!error) {
-				settings.twitter.accessToken = credentials.accessToken;
-				settings.twitter.accessTokenSecret = credentials.accessTokenSecret;
-				fs.writeFileSync(SETTINGS_FILE, yaml.safeDump(settings));
-
-				telegramBot.sendMessage(
-					msg.chat.id,
-					"The app has been authorized successfully."
-				);
-
-				createTwitterBot(msg);
+			if (error) {
+				return console.error("The verification step was not completed", error);
 			}
+			settings.twitter.accessToken = credentials.accessToken;
+			settings.twitter.accessTokenSecret = credentials.accessTokenSecret;
+			fs.writeFileSync(SETTINGS_FILE, yaml.safeDump(settings));
+
+			telegramBot.sendMessage(
+				msg.chat.id,
+				"The app has been authorized successfully."
+			);
+
+			createTwitterBot(msg);
 		});
 	}
 }
@@ -281,46 +310,47 @@ function createTwitterBot(msg) {
 			include_email: false
 		},
 		(error, user) => {
-			if (!error) {
-				settings.twitter.user = user.screen_name;
-				fs.writeFileSync(SETTINGS_FILE, yaml.safeDump(settings));
-
-				const twitterStream = twitterBot.stream("statuses/filter", {
-					track: ["@" + user.screen_name]
-				});
-
-				twitterStream.on("error", error => {
-					console.error(error);
-				});
-
-				twitterStream.on("connect", request => {
-					console.info("Connecting to Twitter...");
-				});
-
-				twitterStream.on("connected", response => {
-					telegramBot.sendMessage(
-						msg.chat.id,
-						`Connected to the Twitter account [@${
-							user.screen_name
-						}](https://twitter.com/${
-							user.screen_name
-						}), /start tweeting or ask for /help to see the instructions.`,
-						{ parse_mode: "Markdown" }
-					);
-					console.info("Connected to Twitter.");
-				});
-
-				twitterStream.on("disconnect", disconnectMessage => {
-					console.error("Disconnected from Twitter.\n" + disconnectMessage);
-					telegramBot.sendMessage(msg.chat.id, "Disconnected from Twitter");
-				});
-			} else {
+			if (error) {
 				console.error(error);
 				telegramBot.sendMessage(
 					msg.chat.id,
 					"Couldn't verify your Twitter credentials..."
 				);
+				return;
 			}
+
+			settings.twitter.user = user.screen_name;
+			fs.writeFileSync(SETTINGS_FILE, yaml.safeDump(settings));
+
+			const twitterStream = twitterBot.stream("statuses/filter", {
+				track: ["@" + user.screen_name]
+			});
+
+			twitterStream.on("error", error => {
+				console.error(error);
+			});
+
+			twitterStream.on("connect", request => {
+				console.info("Connecting to Twitter...");
+			});
+
+			twitterStream.on("connected", response => {
+				telegramBot.sendMessage(
+					msg.chat.id,
+					`Connected to the Twitter account [@${
+						user.screen_name
+					}](https://twitter.com/${
+						user.screen_name
+					}), /start tweeting or ask for /help to see the instructions.`,
+					{ parse_mode: "Markdown" }
+				);
+				console.info("Connected to Twitter.");
+			});
+
+			twitterStream.on("disconnect", disconnectMessage => {
+				console.error("Disconnected from Twitter.\n" + disconnectMessage);
+				telegramBot.sendMessage(msg.chat.id, "Disconnected from Twitter");
+			});
 		}
 	);
 }
@@ -371,7 +401,7 @@ function prepareTweet(msg) {
 								usersChat[msg.from.id].file_id,
 								{ caption: waitingForApproval }
 							);
-							break;	
+							break;
 						case "video":
 							telegramBot.sendVideo(
 								settings.telegram.chatId,
@@ -463,14 +493,18 @@ function tweet(msg, status, mediaId, user, admin) {
 	}
 	const params = { status: status, media_ids: media_ids };
 	twitterBot.post("statuses/update", params, (error, data, response) => {
-		if (!error) {
-			const statusUrl = `https://twitter.com/${data.screen_name}/status/${
-				data.id_str
-			}`;
-			const message = TWEETED.replace("<%USER%>", "@" + user)
-				.replace("<%ADMIN%>", "@" + admin)
-				.replace("<%LINK%>", statusUrl);
-			telegramBot.sendMessage(msg.chat.id, message);
+		if (error || response.statusCode != 200) {
+			return console.error(
+				"Couldn't post status to the Twitter stream",
+				error || response.statusMessage
+			);
 		}
+		const statusUrl = `https://twitter.com/${data.screen_name}/status/${
+			data.id_str
+		}`;
+		const message = TWEETED.replace("<%USER%>", "@" + user)
+			.replace("<%ADMIN%>", "@" + admin)
+			.replace("<%LINK%>", statusUrl);
+		telegramBot.sendMessage(msg.chat.id, message);
 	});
 }
