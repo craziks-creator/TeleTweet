@@ -529,7 +529,7 @@ function tweet(msg, status, mediaId, user, admin) {
 				error || response.statusMessage
 			);
 		}
-		const statusUrl = `https://twitter.com/${data.screen_name}/status/${
+		const statusUrl = `https://twitter.com/${data.user.screen_name}/status/${
 			data.id_str
 		}`;
 		const message = TWEETED.replace("<%USER%>", "@" + user)
